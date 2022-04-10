@@ -1,0 +1,5 @@
+region                      = "eu-west-2"
+RootDomainName              = "acatcalledjack.co.uk"
+SubDomainName               = "www"
+GithubCodestarConnectionArn = "arn:aws:codestar-connections:us-east-1:834964221221:connection/d03c8a4b-87b6-47cb-99d7-60c065e17016"
+GitHubRepositoryId          = "nickmanc/accj_content"
