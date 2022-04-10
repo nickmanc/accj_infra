@@ -1,0 +1,4 @@
+.idea/
+www/.terraform.lock.hcl
+www/.terraform/modules/modules.json
+www/.terraform/
