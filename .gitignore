@@ -2,3 +2,7 @@
 www/.terraform.lock.hcl
 www/.terraform/modules/modules.json
 www/.terraform/
+www/terraform.tfvars
+accj_infra.iml
+www/terraform.tfstate
+www/terraform.tfstate.backup

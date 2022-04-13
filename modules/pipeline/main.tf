@@ -17,6 +17,13 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "CodePipelineBucke
   }
 }
 
+resource "aws_s3_bucket_versioning" "CodePipelineVersioning" {
+  bucket = aws_s3_bucket.codepipeline_bucket.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
 resource "aws_s3_bucket_public_access_block" "CodePipelineBucketPublicAccessBlock" {
   bucket                  = aws_s3_bucket.codepipeline_bucket.id
   block_public_acls       = true

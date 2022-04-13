@@ -24,6 +24,13 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "SiteContentBucket
   }
 }
 
+resource "aws_s3_bucket_versioning" "SiteContentVersioning" {
+  bucket = aws_s3_bucket.SiteContentBucket.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
 resource "aws_s3_bucket_logging" "SiteContentBucketLogging" {
   bucket = aws_s3_bucket.SiteContentBucket.bucket
 
@@ -53,6 +60,13 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "SiteLoggingBucket
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
     }
+  }
+}
+
+resource "aws_s3_bucket_versioning" "SiteLoggingVersioning" {
+  bucket = aws_s3_bucket.SiteLoggingBucket.id
+  versioning_configuration {
+    status = "Enabled"
   }
 }
 
@@ -100,14 +114,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "SiteLoggingBucketLifecycleConf
     }
     status = "Enabled"
   }
-}
-
-resource "aws_s3_object" "index_file" {
-  bucket       = aws_s3_bucket.SiteContentBucket.bucket
-  key          = "index.html"
-  source       = "index.html"
-  content_type = "text/html"
-  etag         = filemd5("index.html")
 }
 
 
