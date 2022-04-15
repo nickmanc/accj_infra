@@ -8,10 +8,10 @@ provider "aws" {
 }
 
 resource "aws_s3_bucket" "SiteContentBucket" {
-  bucket = var.bucketName
+  bucket        = var.bucketName
   force_destroy = true #happy for logs to be destroyed by terraform?
-  tags   = {
-    Name        = "content Bucket"
+  tags          = {
+    Name = "content Bucket"
   }
 }
 resource "aws_s3_bucket_server_side_encryption_configuration" "SiteContentBucketEncryption" {
@@ -180,6 +180,7 @@ resource "aws_iam_user_login_profile" "SiteContentUpdateLoginProfile" {
 resource "aws_cloudfront_origin_access_identity" "ContentCloudFrontOriginAccessIdentity" {
   comment = "Origin Access Identity for site"
 }
+
 resource "aws_cloudfront_distribution" "ContentDistribution" {
   origin {
     domain_name = "${var.fqdn}.s3.eu-west-2.amazonaws.com" #TODO should use current region?
@@ -237,46 +238,30 @@ resource "aws_cloudfront_function" "AddContentSecurityHeadersFunction" {
   code    = file("${path.module}/code/AddContentSecurityHeadersFunction.js")
 }
 
-
-data "archive_file" "InvalidateCloudFrontDistributionLambdaZipInline" {
+data "archive_file" "InvalidateCloudFrontDistributionLambdaZip" {
   type        = "zip"
-  output_path = "/tmp/invalidate_cf_lambda.zip"
   source {
-    content  = <<EOF
-from __future__ import print_function
-
-import boto3
-import time
-
-def lambda_handler(event, context):
-    client = boto3.client('cloudfront')
-    invalidation = client.create_invalidation(DistributionId='${aws_cloudfront_distribution.ContentDistribution.id}',
-        InvalidationBatch={
-            'Paths': {
-                'Quantity': 1,
-                'Items': ['/*']
-        },
-        'CallerReference': str(time.time())
-    })
-EOF
-    filename = "lambda_function.py"
+    content  = templatefile("${path.module}/code/InvalidateCloudFrontDistributionLambdaTemplate.js",
+      { distributionId = aws_cloudfront_distribution.ContentDistribution.id } )
+    filename = "InvalidateCloudFrontDistributionLambda.js"
   }
+  output_path = "InvalidateCloudFrontDistributionLambda.zip"
 }
 
 resource "aws_lambda_function" "InvalidateCloudFrontDistributionLambda" {
-  function_name    = "${replace(var.fqdn,".","_")}_invalidate_cf_distribution_python"
+  function_name    = "${replace(var.fqdn,".","_")}_invalidate_cf_distribution"
   role             = aws_iam_role.InvalidateCloudFrontDistributionRole.arn
-  filename         = data.archive_file.InvalidateCloudFrontDistributionLambdaZipInline.output_path
-  source_code_hash = data.archive_file.InvalidateCloudFrontDistributionLambdaZipInline.output_base64sha256
-  handler          = "lambda_function.lambda_handler"
-  runtime          = "python3.8"
+  filename         = data.archive_file.InvalidateCloudFrontDistributionLambdaZip.output_path
+  source_code_hash = filebase64sha256(data.archive_file.InvalidateCloudFrontDistributionLambdaZip.output_path)
+  handler          = "InvalidateCloudFrontDistributionLambda.handler"
+  runtime          = "nodejs14.x"
   publish          = "true"
 }
 
 data "aws_caller_identity" "current" {}
 
 resource "aws_iam_role" "InvalidateCloudFrontDistributionRole" {
-  name               = "${replace(var.fqdn,".","_")}_invalidate_cf_distribution_python_role"
+  name               = "${replace(var.fqdn,".","_")}_invalidate_cf_distributiontes_role"
   assume_role_policy = jsonencode({
     Version   = "2012-10-17"
     Statement = [
