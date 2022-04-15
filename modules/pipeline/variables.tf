@@ -5,12 +5,6 @@ variable "fqdn" {
 
 variable "ContentBucket" {
   description = "Bucket containing content, to be updated by the pipeline"
-  type        = string
-}
-
-variable "ContentBucketArn" {
-  description = "Arn of bucket containing content, to be updated by the pipeline"
-  type        = string
 }
 
 variable "GithubCodestarConnectionArn" {

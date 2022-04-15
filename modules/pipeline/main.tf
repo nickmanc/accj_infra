@@ -2,6 +2,10 @@ provider "aws" {
   region = var.region
 }
 
+data "aws_s3_bucket" "ContentBucket" {
+  bucket = var.ContentBucket.bucket
+}
+
 resource "aws_s3_bucket" "codepipeline_bucket" {
   force_destroy = true #happy for logs to be destroyed by terraform?
   bucket = "${var.fqdn}.codepipeline"
@@ -100,8 +104,8 @@ resource "aws_iam_role_policy" "codepipeline_policy" {
       "Resource": [
         "${aws_s3_bucket.codepipeline_bucket.arn}",
         "${aws_s3_bucket.codepipeline_bucket.arn}/*",
-        "${var.ContentBucketArn}",
-        "${var.ContentBucketArn}/*"
+        "${data.aws_s3_bucket.ContentBucket.arn}",
+        "${data.aws_s3_bucket.ContentBucket.arn}/*"
       ]
     },
     {
@@ -123,7 +127,6 @@ resource "aws_iam_role_policy" "codepipeline_policy" {
 }
 EOF
 }
-
 
 resource "aws_codepipeline" "codepipeline" {
   name     = "accj-s3-deploy"
@@ -164,7 +167,7 @@ resource "aws_codepipeline" "codepipeline" {
     action {
       category         = "Deploy"
       configuration    = {
-        "BucketName" = var.ContentBucket
+        "BucketName" = data.aws_s3_bucket.ContentBucket.id
         "Extract"    = "true"
       }
       input_artifacts  = [

@@ -29,8 +29,7 @@ module "website" {
 module "pipeline" {
   source                      = "../modules/pipeline"
   fqdn                        = "${var.SubDomainName}.${var.RootDomainName}"
-  ContentBucket               = "${var.SubDomainName}.${var.RootDomainName}"
-  ContentBucketArn            = module.website.SiteContentBucket.arn
+  ContentBucket               = module.website.SiteContentBucket
   GithubCodestarConnectionArn = var.GithubCodestarConnectionArn
   GitHubRepositoryId          = var.GitHubRepositoryId
   region                      = var.region
