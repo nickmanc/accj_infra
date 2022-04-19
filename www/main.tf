@@ -33,4 +33,6 @@ module "pipeline" {
   GithubCodestarConnectionArn = var.GithubCodestarConnectionArn
   GitHubRepositoryId          = var.GitHubRepositoryId
   region                      = var.region
+  NotificationEmail           = var.NotificationEmail
+  NotificationSms             = var.NotificationSms
 }

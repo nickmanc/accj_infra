@@ -1,5 +1,10 @@
 provider "aws" {
   region = var.region
+  default_tags {
+    tags = {
+      tfModule = "website"
+    }
+  }
 }
 
 provider "aws" {

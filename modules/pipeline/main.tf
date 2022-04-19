@@ -1,5 +1,10 @@
 provider "aws" {
   region = var.region
+  default_tags {
+    tags = {
+      tfModule = "pipeline"
+    }
+  }
 }
 
 data "aws_s3_bucket" "ContentBucket" {
@@ -8,7 +13,7 @@ data "aws_s3_bucket" "ContentBucket" {
 
 resource "aws_s3_bucket" "codepipeline_bucket" {
   force_destroy = true #happy for logs to be destroyed by terraform?
-  bucket = "${var.fqdn}.codepipeline"
+  bucket        = "${var.fqdn}.codepipeline"
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "CodePipelineBucketEncryption" {
@@ -141,8 +146,8 @@ resource "aws_codepipeline" "codepipeline" {
     name = "Source"
 
     action {
-      category         = "Source"
-      configuration    = {
+      category      = "Source"
+      configuration = {
         "BranchName"           = "main"
         "ConnectionArn"        = var.GithubCodestarConnectionArn
         "FullRepositoryId"     = var.GitHubRepositoryId
@@ -154,32 +159,87 @@ resource "aws_codepipeline" "codepipeline" {
       output_artifacts = [
         "SourceArtifact",
       ]
-      owner            = "AWS"
-      provider         = "CodeStarSourceConnection"
-      region           = var.region
-      run_order        = 1
-      version          = "1"
+      owner     = "AWS"
+      provider  = "CodeStarSourceConnection"
+      region    = var.region
+      run_order = 1
+      version   = "1"
     }
   }
   stage {
     name = "Deploy"
 
     action {
-      category         = "Deploy"
-      configuration    = {
+      category      = "Deploy"
+      configuration = {
         "BucketName" = data.aws_s3_bucket.ContentBucket.id
         "Extract"    = "true"
       }
-      input_artifacts  = [
+      input_artifacts = [
         "SourceArtifact",
       ]
-      name             = "Deploy"
-      namespace        = "DeployVariables"
-      owner            = "AWS"
-      provider         = "S3"
-      region           = var.region
-      run_order        = 1
-      version          = "1"
+      name      = "Deploy"
+      namespace = "DeployVariables"
+      owner     = "AWS"
+      provider  = "S3"
+      region    = var.region
+      run_order = 1
+      version   = "1"
     }
+  }
+}
+
+resource "aws_sns_topic" "codestar-notifications-accj-content-deploy-complete" {
+  name = "codestar-notifications-accj-content-deploy-complete"
+
+}
+
+resource "aws_sns_topic_policy" "codestar-notifications-accj-content-deploy-complete-policy" {
+  arn    = aws_sns_topic.codestar-notifications-accj-content-deploy-complete.arn
+  policy = jsonencode({
+    "Version" : "2008-10-17",
+    "Statement" : [
+      {
+        "Sid" : "CodeNotification_publish",
+        "Action" : "SNS:Publish",
+        "Effect" : "Allow",
+        "Resource" : [
+          aws_sns_topic.codestar-notifications-accj-content-deploy-complete.arn
+        ],
+        "Principal" : {
+          "Service" : "codestar-notifications.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_sns_topic_subscription" "content-deploy-email-subscription" {
+  endpoint  = var.NotificationEmail
+  protocol  = "email"
+  topic_arn = aws_sns_topic.codestar-notifications-accj-content-deploy-complete.arn
+}
+
+resource "aws_sns_topic_subscription" "content-deploy-sms-subscription" {
+  endpoint                        = var.NotificationSms
+  protocol                        = "sms"
+#  confirmation_timeout_in_minutes = 1
+#  endpoint_auto_confirms          = false
+  topic_arn                       = aws_sns_topic.codestar-notifications-accj-content-deploy-complete.arn
+}
+
+resource "aws_codestarnotifications_notification_rule" "accj-deploy-pipeline-run-notification" {
+  detail_type    = "BASIC"
+  event_type_ids = [
+    "codepipeline-pipeline-pipeline-execution-canceled",
+    "codepipeline-pipeline-pipeline-execution-failed",
+    "codepipeline-pipeline-pipeline-execution-succeeded",
+    "codepipeline-pipeline-pipeline-execution-superseded",
+  ]
+  name     = "accj-deploy-pipeline"
+  resource = aws_codepipeline.codepipeline.arn
+  target {
+    address = aws_sns_topic.codestar-notifications-accj-content-deploy-complete.arn
+    type    = "SNS"
   }
 }
