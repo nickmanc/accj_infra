@@ -18,6 +18,10 @@ provider "aws" {
   }
 }
 
+provider "aws" {
+  region = "us-east-1"
+  alias  = "useast1"
+}
 module "website" {
   source     = "../modules/website"
   fqdn       = "${var.SubDomainName}.${var.RootDomainName}"
@@ -35,4 +39,10 @@ module "pipeline" {
   region                      = var.region
   NotificationEmail           = var.NotificationEmail
   NotificationSms             = var.NotificationSms
+}
+
+module "api" {
+  source         = "../modules/api"
+  RootDomainName = var.RootDomainName
+  region         = var.region
 }

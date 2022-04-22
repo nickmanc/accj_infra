@@ -244,9 +244,9 @@ resource "aws_cloudfront_function" "AddContentSecurityHeadersFunction" {
 }
 
 data "archive_file" "InvalidateCloudFrontDistributionLambdaZip" {
-  type        = "zip"
+  type = "zip"
   source {
-    content  = templatefile("${path.module}/code/InvalidateCloudFrontDistributionLambdaTemplate.js",
+    content = templatefile("${path.module}/code/InvalidateCloudFrontDistributionLambdaTemplate.js",
       { distributionId = aws_cloudfront_distribution.ContentDistribution.id } )
     filename = "InvalidateCloudFrontDistributionLambda.js"
   }
@@ -365,16 +365,16 @@ resource "aws_route53_record" "DNSRecord" {
   records = [aws_cloudfront_distribution.ContentDistribution.domain_name]
 }
 
+data "aws_route53_zone" "route53_hosted_zone" {
+  name         = var.hostedZone
+  private_zone = false
+}
+
 resource "aws_acm_certificate" "wildcard_certificate" {
   provider          = aws.useast1 //certificate has to be from us-east-1 for CloudFront
   domain_name       = var.fqdn
   validation_method = "DNS"
   # (resource arguments)
-}
-
-data "aws_route53_zone" "route53_hosted_zone" {
-  name         = var.hostedZone
-  private_zone = false
 }
 
 resource "aws_route53_record" "route53_record" {
@@ -399,3 +399,19 @@ resource "aws_acm_certificate_validation" "certificate_validation" {
   certificate_arn         = aws_acm_certificate.wildcard_certificate.arn
   validation_record_fqdns = [for record in aws_route53_record.route53_record : record.fqdn]
 }
+
+resource "aws_route53_health_check" "accj_website_check" {
+  reference_name    = "accj_website_check"
+  fqdn              = var.fqdn
+  port              = 443
+  resource_path     = "/index.html"
+  failure_threshold = "5"
+  request_interval  = "30"
+  search_string     = "gentleman"
+  type              = "HTTPS_STR_MATCH"
+
+  tags = {
+    Name = "accj_website_check"
+  }
+}
+
