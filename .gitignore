@@ -8,3 +8,5 @@ www/terraform.tfstate
 www/terraform.tfstate.backup
 www/.terraform.tfstate.lock.info
 www/InvalidateCloudFrontDistributionLambda.zip
+www/Subscribe.zip
+www/Unsubscribe.zip

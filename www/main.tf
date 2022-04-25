@@ -22,6 +22,7 @@ provider "aws" {
   region = "us-east-1"
   alias  = "useast1"
 }
+
 module "website" {
   source     = "../modules/website"
   fqdn       = "${var.SubDomainName}.${var.RootDomainName}"
