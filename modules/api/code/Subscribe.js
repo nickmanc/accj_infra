@@ -20,7 +20,7 @@ async function addToSQSQueue(EMAIL, EMAIL_UUID)
     {
         console.log("Error", err);
     }
-}
+} 
 
 async function sendVerificationEmail(EMAIL, EMAIL_UUID)
 {
@@ -75,7 +75,7 @@ exports.handler = async(event) =>
             },
             ConditionExpression: "attribute_not_exists(email)"
         };
-        let returnMessage = 'email address entered successfully'
+        let returnMessage = 'Email address entered successfully, please confirm your subscription by clicking the link in the email I\'ve just sent.'
         try
         {
             await DDB.putItem(params).promise();
@@ -94,10 +94,10 @@ exports.handler = async(event) =>
                 const subscriptionData = await DDB.getItem(getParams).promise();
                 if(subscriptionData.Item.verified.BOOL)
                 {
-                    returnMessage = 'email address previously entered and verified'
+                    returnMessage = 'You\'re already signed up!'
                 } else
                 {
-                    returnMessage = 'email address already submitted, but not verified'
+                    returnMessage = 'Email address previously added, please confirm your subscription by clicking the link in the email I sent.'
                 }
             } else
             {
@@ -113,7 +113,8 @@ exports.handler = async(event) =>
                 'Access-Control-Allow-Origin': '*',
                 'Content-Type': 'application/json'
             },
-            "body": JSON.stringify({"message":returnMessage})};
+            "body": JSON.stringify({"message": returnMessage})
+        };
         console.log(response)
         return response
     } catch(err)

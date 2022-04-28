@@ -24,7 +24,7 @@ exports.handler = async(event) =>
         try
         {
             await DDB.updateItem(params).promise();
-            response =  {
+            response = {
                 "isBase64Encoded": false,
                 "statusCode": '200',
                 "headers": {
@@ -34,21 +34,22 @@ exports.handler = async(event) =>
                 "body": "<html lang=\"en\"><head><style>.messageText {color: black; font-weight: 800; letter-spacing: 0.075em; text-transform: uppercase; font-size: 32px; font-family: \"Raleway\", \"Helvetica\", sans-serif; text-align: center;}</style></head>" +
                         "<body></body><div class=\"messageText\"><h1>Welcome to ${root_domain_name}</h1><p>" + EMAIL
                         + " has successfully subscribed.</p><p>I'll let you know whenever the content on the website changes</p><br/><p>Jack</p>"
-                        + "<small>To unsubscribe just click <a href=\"https://${api_address}${unsubscribe_resource}?email=" + EMAIL + "&id=" + EMAIL_UUID+"\">here</a></small><img src='https://www.acatcalledjack.co.uk/images/verification.jpg'\"></img></div></body></html>"};
-        }
-        catch(err)
+                        + "<small>To unsubscribe just click <a href=\"https://${api_address}${unsubscribe_resource}?email=" + EMAIL + "&id=" + EMAIL_UUID + "\">here</a></small><img src='https://www.acatcalledjack.co.uk/images/verification.jpg'\"></img></div></body></html>"
+            };
+        } catch(err)
         {
             if(err.name === 'ConditionalCheckFailedException')
             {
-                response =  {
-                "isBase64Encoded": false,
-                "statusCode": '200',
-                "headers": {
-                    'Access-Control-Allow-Origin': '*',
-                    'Content-Type': 'text/html'
-                },
-                "body": "<html lang=\"en\"><h1>:-(</h1><p>" + EMAIL
-                        + " failed to subscribe.</p></html>"};
+                response = {
+                    "isBase64Encoded": false,
+                    "statusCode": '200',
+                    "headers": {
+                        'Access-Control-Allow-Origin': '*',
+                        'Content-Type': 'text/html'
+                    },
+                    "body": "<html lang=\"en\"><h1>:-(</h1><p>" + EMAIL
+                            + " failed to subscribe.</p></html>"
+                };
             }
         }
         

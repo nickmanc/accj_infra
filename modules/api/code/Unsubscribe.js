@@ -8,7 +8,7 @@ exports.handler = async(event) =>
         console.log(event);
         
         const DDB = new AWS.DynamoDB({apiVersion: '2012-08-10'});
-    
+        
         const EMAIL = event.queryStringParameters.email;
         const EMAIL_UUID = event.queryStringParameters.id;
         
@@ -27,8 +27,8 @@ exports.handler = async(event) =>
         try
         {
             await DDB.deleteItem(params).promise();
-        }
-        catch(err) {
+        } catch(err)
+        {
             if(err.name === 'ConditionalCheckFailedException')
             {
                 const getParams = {
@@ -40,10 +40,12 @@ exports.handler = async(event) =>
                 const subscriptionData = await DDB.getItem(getParams).promise();
                 if(subscriptionData.Item != null)
                 {
-                    returnMessage = 'incorrect unsuscribe request, please contact jack@acatcalledjack.co.uk for further help'
+                    returnMessage = "<h1>Unsubscribe failed :-(</h1><p>" + EMAIL
+                            + "</p><p>Please contact jack@acatcalledjack.co.uk for further help</p>"
                 } else
                 {
-                    returnMessage = EMAIL + ' was not found in the system'
+                    returnMessage = "<h1>Unsubscribe failed :-(</h1><p>" + EMAIL
+                            + "</p><p>" + EMAIL + " was not found on our system</p>"
                 }
             } else
             {
@@ -60,9 +62,9 @@ exports.handler = async(event) =>
                 'Content-Type': 'text/html'
             },
             "body": "<html lang=\"en\"><head><style>.messageText {color: black; font-weight: 800; letter-spacing: 0.075em; text-transform: uppercase; font-size: 32px; font-family: \"Raleway\", \"Helvetica\", sans-serif; text-align: center;}</style></head>" +
-                    "<div class=\"messageText\"><h1>Sorry to see you go :-(</h1><p>" + EMAIL
-                    + "</p><p>I've removed you from the mailing list</p><br/>Best Wishes<p>Jack</p>"
-                    + "<img src='https://www.acatcalledjack.co.uk/images/sad_jack.jpg'\"></img></div></body></html>"}
+                    "<div class=\"messageText\">" + returnMessage + "<br/>Best Wishes<p>Jack</p>"
+                    + "<img src='https://www.acatcalledjack.co.uk/images/sad_jack.jpg'\"></img></div></body></html>"
+        }
         
     } catch(err)
     {

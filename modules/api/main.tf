@@ -39,8 +39,14 @@ resource "aws_api_gateway_rest_api" "subscription_api" {
 
 resource "aws_api_gateway_deployment" "test" {
   rest_api_id = aws_api_gateway_rest_api.subscription_api.id
+
   triggers = {
-    redeployment = md5(file("../modules/api/main.tf"))#assumes this module is being run from directory above modules
+    redeployment = sha1(jsonencode([
+      md5(file("../modules/api/code/Subscribe.js")),#assumes this module is being run from directory above modules
+      md5(file("../modules/api/code/Unsubscribe.js")),#assumes this module is being run from directory above modules
+      md5(file("../modules/api/code/Verify.js")),#assumes this module is being run from directory above modules
+      md5(file("../modules/api/main.tf"))#assumes this module is being run from directory above modules
+    ]))
   }
   lifecycle {
     create_before_destroy = true
