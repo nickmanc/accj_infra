@@ -10,3 +10,7 @@ www/.terraform.tfstate.lock.info
 www/InvalidateCloudFrontDistributionLambda.zip
 www/Subscribe.zip
 www/Unsubscribe.zip
+node_modules/
+www/Verify.zip
+package-lock.json
+package.json

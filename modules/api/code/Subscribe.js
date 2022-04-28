@@ -1,7 +1,6 @@
 const AWS = require('aws-sdk');
 const crypto = require('crypto');
 
-
 async function addToSQSQueue(EMAIL, EMAIL_UUID)
 {
     const SQS = new AWS.SQS({apiVersion: '2012-11-05'});
@@ -26,53 +25,47 @@ async function addToSQSQueue(EMAIL, EMAIL_UUID)
 async function sendVerificationEmail(EMAIL, EMAIL_UUID)
 {
     const SES = new AWS.SES({apiVersion: '2010-12-01'});
-    var ses_params = {
+    const template_data = JSON.stringify({
+        "verification_url": "https://${api_address}${verify_resource}?email=" + EMAIL + "&id=" + EMAIL_UUID,
+        "unsubscribe_url": "https://${api_address}${unsubscribe_resource}?email=" + EMAIL + "&id=" + EMAIL_UUID,
+        "root_domain_name": "${root_domain_name}"
+    });
+    const ses_params = {
         Destination: {
             ToAddresses: [
                 EMAIL
             ]
         },
-        Message: {
-            Body: {
-                // Html: {
-                //     Charset: "UTF-8",
-                //     Data: "HTML_FORMAT_BODY"
-                // },
-                Text: {
-                    Charset: "UTF-8",
-                    Data: "Thank-you for subscribing to acatcalledjack.co.uk!\n\nTo confirm your subscription please click on this link:\n\nWe’ll let you know whenever there are updates to the website.  If you wish to unsubscribe at any time please click this link:"
-                }
-            },
-            Subject: {
-                Charset: 'UTF-8',
-                Data: 'Please confirm your subscription to acatcalledjack.co.uk'
-            }
-        },
-        Source: 'jack@acatcalledjack.co.uk', /* required */
+        Source: "${email_from}@${root_domain_name}",
+        Template: "${email_template_name}",
+        TemplateData: template_data,
         ReplyToAddresses: [
-            'nickcooke@hotmail.com'
+            "noreply@${root_domain_name}"
         ],
     };
     
     try
     {
-        await SES.sendEmail(ses_params).promise();
+        await SES.sendTemplatedEmail(ses_params).promise();
+        console.log("Successfully submitted templated email");
     } catch(err)
     {
         console.log("Error", err);
     }
 }
+
 exports.handler = async(event) =>
 {
     try
     {
         console.log(event);
+        let body = JSON.parse(event.body)
         
         const DDB = new AWS.DynamoDB({apiVersion: '2012-08-10'});
         
-        const EMAIL = event.body.email;
+        const EMAIL = body.email;
         const EMAIL_UUID = crypto.randomUUID()
-        
+        console.log("email: " + EMAIL)
         const params = {
             TableName: "${tableName}",
             Item: {
@@ -113,17 +106,16 @@ exports.handler = async(event) =>
             }
         }
         
-        return {
-            'statusCode': 200,
-            'body': JSON.stringify({
-                message: returnMessage
-            }),
-            'headers': JSON.stringify({
-                        'Content-Type': 'application/json',
-                        'Access-Control-Allow-Origin': '*'
-                    }
-            )
-        };
+        let response = {
+            "isBase64Encoded": false,
+            "statusCode": '200',
+            "headers": {
+                'Access-Control-Allow-Origin': '*',
+                'Content-Type': 'application/json'
+            },
+            "body": JSON.stringify({"message":returnMessage})};
+        console.log(response)
+        return response
     } catch(err)
     {
         console.log("Error: " + err.message);

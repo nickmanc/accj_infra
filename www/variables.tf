@@ -26,3 +26,8 @@ variable "NotificationEmail" {
 variable "NotificationSms" {
   description = "Phone number to notify when content has changed"
 }
+
+variable "EmailFromName" {
+  description = "name that any emails will be sent from, prepending to the root domain name"
+  type = string
+}

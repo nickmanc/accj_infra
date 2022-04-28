@@ -2,7 +2,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 4.2.0"
+      version = "~> 4"
     }
   }
   required_version = ">= 0.14.9"
@@ -46,4 +46,5 @@ module "api" {
   source         = "../modules/api"
   RootDomainName = var.RootDomainName
   region         = var.region
+  EmailFromName = var.EmailFromName
 }

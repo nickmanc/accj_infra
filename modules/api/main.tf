@@ -31,44 +31,97 @@ resource "aws_dynamodb_table" "subscriptions" {
 }
 
 ###########################################################################
-# API
+# SUBSCRIPTION API
 ###########################################################################
 resource "aws_api_gateway_rest_api" "subscription_api" {
   name = "Subscription"
 }
 
 resource "aws_api_gateway_deployment" "test" {
-  depends_on = [
-    aws_api_gateway_method.subscription_post,
-    aws_api_gateway_integration.subscription_post_integration,
-    aws_api_gateway_method.subscription_options,
-    aws_api_gateway_integration.subscription_options_integration,
-    aws_api_gateway_method.subscription_delete,
-    aws_api_gateway_integration.subscription_delete_integration
-  ]
   rest_api_id = aws_api_gateway_rest_api.subscription_api.id
-
   triggers = {
-    redeployment = sha1(jsonencode(aws_api_gateway_rest_api.subscription_api.body))
+    redeployment = md5(file("../modules/api/main.tf"))#assumes this module is being run from directory above modules
   }
-
   lifecycle {
     create_before_destroy = true
   }
-  stage_description = md5(file("main.tf"))
+  stage_description = sha256(file("../modules/api/main.tf"))#assumes this module is being run from directory above modules
 }
 
 resource "aws_api_gateway_stage" "test" {
-  deployment_id = aws_api_gateway_deployment.test.id
-  rest_api_id   = aws_api_gateway_rest_api.subscription_api.id
-  cache_cluster_size    = "0.5"
-  stage_name    = "test"
+  deployment_id      = aws_api_gateway_deployment.test.id
+  rest_api_id        = aws_api_gateway_rest_api.subscription_api.id
+  cache_cluster_size = "0.5"
+  stage_name         = "test"
 }
 
 resource "aws_api_gateway_resource" "subscription_resource" {
   rest_api_id = aws_api_gateway_rest_api.subscription_api.id
   parent_id   = aws_api_gateway_rest_api.subscription_api.root_resource_id
   path_part   = "subscriptionmanager"
+}
+
+resource "aws_api_gateway_model" "html_model" {
+  rest_api_id  = aws_api_gateway_rest_api.subscription_api.id
+  name         = "html"
+  content_type = "text/html"
+
+  schema = <<EOF
+{
+  "type": "object"
+}
+EOF
+}
+
+resource "aws_api_gateway_resource" "verify_resource" {
+  rest_api_id = aws_api_gateway_rest_api.subscription_api.id
+  parent_id   = aws_api_gateway_resource.subscription_resource.id
+  path_part   = "verify"
+}
+
+resource "aws_api_gateway_request_validator" "parameter_validator" {
+  name                        = "parameter_validator"
+  rest_api_id                 = aws_api_gateway_rest_api.subscription_api.id
+  validate_request_parameters = true
+}
+
+resource "aws_api_gateway_method" "verify_get" {
+  rest_api_id        = aws_api_gateway_rest_api.subscription_api.id
+  resource_id        = aws_api_gateway_resource.verify_resource.id
+  request_parameters = {
+    "method.request.querystring.email" = true
+    "method.request.querystring.id"    = true
+  }
+  request_validator_id = aws_api_gateway_request_validator.parameter_validator.id
+  http_method          = "GET"
+  authorization        = "NONE"
+}
+
+resource "aws_api_gateway_integration" "verify_get_integration" {
+  rest_api_id             = aws_api_gateway_rest_api.subscription_api.id
+  resource_id             = aws_api_gateway_resource.verify_resource.id
+  http_method             = aws_api_gateway_method.verify_get.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  content_handling        = "CONVERT_TO_TEXT"
+  uri                     = aws_lambda_function.VerifyLambda.invoke_arn
+}
+resource "aws_api_gateway_integration_response" "verify_get_integration_response" {
+  depends_on          = [aws_api_gateway_integration.subscription_options_integration]
+  http_method         = "GET"
+  resource_id         = aws_api_gateway_resource.verify_resource.id
+  response_parameters = {}
+  response_templates  = { "application/json" : "" }
+  rest_api_id         = aws_api_gateway_rest_api.subscription_api.id
+  status_code         = "200"
+}
+resource "aws_lambda_permission" "verify_lambda_permission" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.VerifyLambda.function_name
+  principal     = "apigateway.amazonaws.com"
+  # More: http://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-control-access-using-iam-policies-to-invoke-api.html
+  source_arn    = "arn:aws:execute-api:${var.region}:${data.aws_caller_identity.current.account_id}:${aws_api_gateway_rest_api.subscription_api.id}/*/${aws_api_gateway_method.verify_get.http_method}${aws_api_gateway_resource.verify_resource.path}"
 }
 
 ###########################################################################
@@ -78,8 +131,16 @@ data "archive_file" "SubscribeLambdaZip" {
   type = "zip"
   source {
     content = templatefile("${path.module}/code/Subscribe.js",
-      { tableName = aws_dynamodb_table.subscriptions.name,
-        new_subscription_queue_url = aws_sqs_queue.new_subscription_queue.url} )
+      {
+        tableName                  = aws_dynamodb_table.subscriptions.name,
+        new_subscription_queue_url = aws_sqs_queue.new_subscription_queue.url,
+        email_template_name        = aws_ses_template.verification_email_template.name
+        api_address                = aws_api_gateway_domain_name.custom_api_domain_name.domain_name
+        verify_resource            = aws_api_gateway_resource.verify_resource.path
+        unsubscribe_resource       = aws_api_gateway_resource.unsubscribe_resource.path
+        email_from                 = var.EmailFromName
+        root_domain_name           = var.RootDomainName
+      } )
     filename = "SubscribeLambda.js"
   }
   output_path = "Subscribe.zip"
@@ -137,13 +198,13 @@ resource "aws_iam_role" "SubscribeRole" {
           "Resource" : "*"
         },
         {
-          "Effect": "Allow",
-          "Action": "sqs:SendMessage",
-          "Resource": aws_sqs_queue.new_subscription_queue.arn
+          "Effect" : "Allow",
+          "Action" : "sqs:SendMessage",
+          "Resource" : aws_sqs_queue.new_subscription_queue.arn
         },
         {
-          "Effect": "Allow",
-          "Action": "ses:SendEmail",
+          "Effect" : "Allow",
+          "Action" : ["ses:SendEmail", "ses:SendTemplatedEmail"]
           "Resource" : "*"
         }
       ]
@@ -155,7 +216,10 @@ data "archive_file" "UnsubscribeLambdaZip" {
   type = "zip"
   source {
     content = templatefile("${path.module}/code/Unsubscribe.js",
-      { tableName = aws_dynamodb_table.subscriptions.name } )
+      {
+        tableName        = aws_dynamodb_table.subscriptions.name,
+        root_domain_name = var.RootDomainName
+      } )
     filename = "UnsubscribeLambda.js"
   }
   output_path = "Unsubscribe.zip"
@@ -217,21 +281,152 @@ resource "aws_iam_role" "UnsubscribeRole" {
   }
 }
 
-###########################################################################
-# POST  /  SUBSCRIBE
-###########################################################################
-resource "aws_api_gateway_method" "subscription_post" {
-  rest_api_id   = aws_api_gateway_rest_api.subscription_api.id
-  resource_id   = aws_api_gateway_resource.subscription_resource.id
-  http_method   = "POST"
-  authorization = "NONE"
+data "archive_file" "VerifyLambdaZip" {
+  type = "zip"
+  source {
+    content = templatefile("${path.module}/code/Verify.js",
+      {
+        tableName        = aws_dynamodb_table.subscriptions.name,
+        root_domain_name = var.RootDomainName,
+        api_address                = aws_api_gateway_domain_name.custom_api_domain_name.domain_name,
+        unsubscribe_resource       = aws_api_gateway_resource.unsubscribe_resource.path
+      } )
+    filename = "VerifyLambda.js"
+  }
+  output_path = "Verify.zip"
 }
 
-resource "aws_api_gateway_method_response" "subscription_post_response" {
+resource "aws_lambda_function" "VerifyLambda" {
+  function_name    = "Verify"
+  role             = aws_iam_role.VerifyRole.arn
+  filename         = data.archive_file.VerifyLambdaZip.output_path
+  source_code_hash = filebase64sha256(data.archive_file.VerifyLambdaZip.output_path)
+  handler          = "VerifyLambda.handler"
+  runtime          = "nodejs14.x"
+  publish          = "true"
+}
+
+resource "aws_iam_role" "VerifyRole" {
+  name               = "verify_role"
+  assume_role_policy = jsonencode({
+    Version   = "2012-10-17"
+    Statement = [
+      {
+        Action    = "sts:AssumeRole"
+        Effect    = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+      }
+    ]
+  })
+  inline_policy {
+    name   = "verify_policy"
+    policy = jsonencode({
+      Version   = "2012-10-17"
+      Statement = [
+        {
+          Action = [
+            "dynamodb:UpdateItem"
+          ]
+          Condition = {
+            StringEqualsIfExists = {
+              "aws:SourceAccount" : data.aws_caller_identity.current.account_id
+            }
+          }
+          Effect   = "Allow"
+          Resource = aws_dynamodb_table.subscriptions.arn
+        },
+        {
+          "Effect" : "Allow",
+          "Action" : [
+            "logs:CreateLogGroup",
+            "logs:CreateLogStream",
+            "logs:PutLogEvents"
+          ],
+          "Resource" : "*"
+        }
+      ]
+    })
+  }
+}
+
+############################################################################
+## POST  /  SUBSCRIBE
+############################################################################
+#resource "aws_api_gateway_method" "subscription_post" {
+#  rest_api_id   = aws_api_gateway_rest_api.subscription_api.id
+#  resource_id   = aws_api_gateway_resource.subscription_resource.id
+#  http_method   = "POST"
+#  authorization = "NONE"
+#}
+#
+#resource "aws_api_gateway_method_response" "subscription_post_response" {
+#  http_method     = "POST"
+#  resource_id     = aws_api_gateway_resource.subscription_resource.id
+#  response_models = {
+#    "application/json" = "Empty"
+#  }
+#  response_parameters = {
+#    "method.response.header.Access-Control-Allow-Origin" = false
+#  }
+#  rest_api_id = aws_api_gateway_rest_api.subscription_api.id
+#  status_code = "200"
+#}
+#
+#resource "aws_api_gateway_integration" "subscription_post_integration" {
+#  rest_api_id             = aws_api_gateway_rest_api.subscription_api.id
+#  resource_id             = aws_api_gateway_resource.subscription_resource.id
+#  http_method             = aws_api_gateway_method.subscription_post.http_method
+#  integration_http_method = "POST"
+#  type                    = "AWS"
+#  uri                     = aws_lambda_function.SubscribeLambda.invoke_arn
+#}
+#
+#resource "aws_api_gateway_integration_response" "subscription_post_integration_response" {
+#  depends_on          = [aws_api_gateway_integration.subscription_options_integration]
+#  http_method         = "POST"
+#  resource_id         = aws_api_gateway_resource.subscription_resource.id
+#  response_parameters = {
+#    "method.response.header.Access-Control-Allow-Origin" = "'*'"
+#  }
+#  response_templates = {
+#    "application/json" = ""
+#  }
+#  rest_api_id = aws_api_gateway_rest_api.subscription_api.id
+#  status_code = "200"
+#}
+#
+#resource "aws_lambda_permission" "subscribe_lambda_permission" {
+#  statement_id  = "AllowExecutionFromAPIGateway"
+#  action        = "lambda:InvokeFunction"
+#  function_name = aws_lambda_function.SubscribeLambda.function_name
+#  principal     = "apigateway.amazonaws.com"
+#  # More: http://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-control-access-using-iam-policies-to-invoke-api.html
+#  source_arn    = "arn:aws:execute-api:${var.region}:${data.aws_caller_identity.current.account_id}:${aws_api_gateway_rest_api.subscription_api.id}/*/${aws_api_gateway_method.subscription_post.http_method}${aws_api_gateway_resource.subscription_resource.path}"
+#}
+###########################################################################
+#  SUBSCRIBE
+###########################################################################
+
+resource "aws_api_gateway_resource" "subscribe_resource" {
+  rest_api_id = aws_api_gateway_rest_api.subscription_api.id
+  parent_id   = aws_api_gateway_resource.subscription_resource.id
+  path_part   = "subscribe"
+}
+
+resource "aws_api_gateway_method" "subscribe_post" {
+  rest_api_id        = aws_api_gateway_rest_api.subscription_api.id
+  resource_id        = aws_api_gateway_resource.subscribe_resource.id
+  http_method          = "POST"
+  authorization        = "NONE"
+}
+
+resource "aws_api_gateway_method_response" "sub_post_response" {
   http_method     = "POST"
-  resource_id     = aws_api_gateway_resource.subscription_resource.id
+  resource_id     = aws_api_gateway_resource.subscribe_resource.id
   response_models = {
-    "application/json" = "Empty"
+    "text/html" = aws_api_gateway_model.html_model.name
   }
   response_parameters = {
     "method.response.header.Access-Control-Allow-Origin" = false
@@ -240,27 +435,24 @@ resource "aws_api_gateway_method_response" "subscription_post_response" {
   status_code = "200"
 }
 
-resource "aws_api_gateway_integration" "subscription_post_integration" {
+resource "aws_api_gateway_integration" "subscribe_post_integration" {
   rest_api_id             = aws_api_gateway_rest_api.subscription_api.id
-  resource_id             = aws_api_gateway_resource.subscription_resource.id
-  http_method             = aws_api_gateway_method.subscription_post.http_method
+  resource_id             = aws_api_gateway_resource.subscribe_resource.id
+  http_method             = aws_api_gateway_method.subscribe_post.http_method
   integration_http_method = "POST"
-  type                    = "AWS"
+  type                    = "AWS_PROXY"
+  content_handling        = "CONVERT_TO_TEXT"
   uri                     = aws_lambda_function.SubscribeLambda.invoke_arn
 }
 
-resource "aws_api_gateway_integration_response" "subscription_post_integration_response" {
+resource "aws_api_gateway_integration_response" "sub_post_integration_response" {
   depends_on          = [aws_api_gateway_integration.subscription_options_integration]
   http_method         = "POST"
-  resource_id         = aws_api_gateway_resource.subscription_resource.id
-  response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin" = "'*'"
-  }
-  response_templates = {
-    "application/json" = ""
-  }
-  rest_api_id = aws_api_gateway_rest_api.subscription_api.id
-  status_code = "200"
+  resource_id         = aws_api_gateway_resource.subscribe_resource.id
+  response_parameters = {}
+  response_templates  = { "application/json" : "" }
+  rest_api_id         = aws_api_gateway_rest_api.subscription_api.id
+  status_code         = "200"
 }
 
 resource "aws_lambda_permission" "subscribe_lambda_permission" {
@@ -269,23 +461,35 @@ resource "aws_lambda_permission" "subscribe_lambda_permission" {
   function_name = aws_lambda_function.SubscribeLambda.function_name
   principal     = "apigateway.amazonaws.com"
   # More: http://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-control-access-using-iam-policies-to-invoke-api.html
-  source_arn    = "arn:aws:execute-api:${var.region}:${data.aws_caller_identity.current.account_id}:${aws_api_gateway_rest_api.subscription_api.id}/*/${aws_api_gateway_method.subscription_post.http_method}${aws_api_gateway_resource.subscription_resource.path}"
+  source_arn    = "arn:aws:execute-api:${var.region}:${data.aws_caller_identity.current.account_id}:${aws_api_gateway_rest_api.subscription_api.id}/*/${aws_api_gateway_method.subscribe_post.http_method}${aws_api_gateway_resource.subscribe_resource.path}"
 }
 ###########################################################################
-# DELETE  /  UNSUBSCRIBE
+#  UNSUBSCRIBE
 ###########################################################################
-resource "aws_api_gateway_method" "subscription_delete" {
-  rest_api_id   = aws_api_gateway_rest_api.subscription_api.id
-  resource_id   = aws_api_gateway_resource.subscription_resource.id
-  http_method   = "DELETE"
-  authorization = "NONE"
+
+resource "aws_api_gateway_resource" "unsubscribe_resource" {
+  rest_api_id = aws_api_gateway_rest_api.subscription_api.id
+  parent_id   = aws_api_gateway_resource.subscription_resource.id
+  path_part   = "unsubscribe"
 }
 
-resource "aws_api_gateway_method_response" "subscription_delete_response" {
-  http_method     = "DELETE"
-  resource_id     = aws_api_gateway_resource.subscription_resource.id
+resource "aws_api_gateway_method" "unsubscribe_get" {
+  rest_api_id        = aws_api_gateway_rest_api.subscription_api.id
+  resource_id        = aws_api_gateway_resource.unsubscribe_resource.id
+  request_parameters = {
+    "method.request.querystring.email" = true
+    "method.request.querystring.id"    = true
+  }
+  request_validator_id = aws_api_gateway_request_validator.parameter_validator.id
+  http_method          = "GET"
+  authorization        = "NONE"
+}
+
+resource "aws_api_gateway_method_response" "unsubscribe_get_response" {
+  http_method     = "GET"
+  resource_id     = aws_api_gateway_resource.unsubscribe_resource.id
   response_models = {
-    "application/json" = "Empty"
+    "text/html" = aws_api_gateway_model.html_model.name
   }
   response_parameters = {
     "method.response.header.Access-Control-Allow-Origin" = false
@@ -294,40 +498,34 @@ resource "aws_api_gateway_method_response" "subscription_delete_response" {
   status_code = "200"
 }
 
-resource "aws_api_gateway_integration" "subscription_delete_integration" {
+resource "aws_api_gateway_integration" "unsubscribe_get_integration" {
   rest_api_id             = aws_api_gateway_rest_api.subscription_api.id
-  resource_id             = aws_api_gateway_resource.subscription_resource.id
-  http_method             = aws_api_gateway_method.subscription_delete.http_method
+  resource_id             = aws_api_gateway_resource.unsubscribe_resource.id
+  http_method             = aws_api_gateway_method.unsubscribe_get.http_method
   integration_http_method = "POST"
-  type                    = "AWS"
+  type                    = "AWS_PROXY"
+  content_handling        = "CONVERT_TO_TEXT"
   uri                     = aws_lambda_function.UnsubscribeLambda.invoke_arn
 }
 
-resource "aws_api_gateway_integration_response" "subscription_delete_integration_response" {
+resource "aws_api_gateway_integration_response" "unsub_get_integration_response" {
   depends_on          = [aws_api_gateway_integration.subscription_options_integration]
-  http_method         = "POST"
-  resource_id         = aws_api_gateway_resource.subscription_resource.id
-  response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin" = "'*'"
-  }
-  response_templates = {
-    "application/json" = ""
-  }
-  rest_api_id = aws_api_gateway_rest_api.subscription_api.id
-  status_code = "200"
+  http_method         = "GET"
+  resource_id         = aws_api_gateway_resource.unsubscribe_resource.id
+  response_parameters = {}
+  response_templates  = { "application/json" : "" }
+  rest_api_id         = aws_api_gateway_rest_api.subscription_api.id
+  status_code         = "200"
 }
 
-resource "aws_lambda_permission" "unsubscribe_lambda_permission" {
+resource "aws_lambda_permission" "unsub_lambda_permission" {
   statement_id  = "AllowExecutionFromAPIGateway"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.UnsubscribeLambda.function_name
   principal     = "apigateway.amazonaws.com"
   # More: http://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-control-access-using-iam-policies-to-invoke-api.html
-  source_arn    = "arn:aws:execute-api:${var.region}:${data.aws_caller_identity.current.account_id}:${aws_api_gateway_rest_api.subscription_api.id}/*/${aws_api_gateway_method.subscription_delete.http_method}${aws_api_gateway_resource.subscription_resource.path}"
+  source_arn    = "arn:aws:execute-api:${var.region}:${data.aws_caller_identity.current.account_id}:${aws_api_gateway_rest_api.subscription_api.id}/*/${aws_api_gateway_method.unsubscribe_get.http_method}${aws_api_gateway_resource.unsubscribe_resource.path}"
 }
-
-
-
 ###########################################################################
 # OPTIONS
 ###########################################################################
@@ -354,11 +552,11 @@ resource "aws_api_gateway_method_response" "subscription_options_response" {
 }
 
 resource "aws_api_gateway_integration" "subscription_options_integration" {
-  rest_api_id             = aws_api_gateway_rest_api.subscription_api.id
-  resource_id             = aws_api_gateway_resource.subscription_resource.id
-  http_method             = aws_api_gateway_method.subscription_options.http_method
-  integration_http_method = "OPTIONS"
-  type                    = "MOCK"
+  rest_api_id = aws_api_gateway_rest_api.subscription_api.id
+  resource_id = aws_api_gateway_resource.subscription_resource.id
+  http_method = aws_api_gateway_method.subscription_options.http_method
+  #  integration_http_method = "OPTIONS" #https://stackoverflow.com/questions/69380162/api-gateway-resources-are-creating-multiple-times-with-terraform-without-conside
+  type        = "MOCK"
 }
 
 resource "aws_api_gateway_integration_response" "subscription_options_integration_response" {
@@ -367,7 +565,7 @@ resource "aws_api_gateway_integration_response" "subscription_options_integratio
   resource_id         = aws_api_gateway_resource.subscription_resource.id
   response_parameters = {
     "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-    "method.response.header.Access-Control-Allow-Methods" = "'OPTIONS,POST,DELETE'"
+    "method.response.header.Access-Control-Allow-Methods" = "'DELETE,OPTIONS,POST'"
     "method.response.header.Access-Control-Allow-Origin"  = "'*'"
   }
   response_templates = {
@@ -408,7 +606,9 @@ resource "aws_route53_record" "route53_record" {
 resource "aws_acm_certificate_validation" "api_certificate_validation" {
   provider                = aws.useast1 //certificate has to be from us-east-1 for CloudFront
   certificate_arn         = aws_acm_certificate.api_certificate.arn
-  validation_record_fqdns = [for record in aws_route53_record.route53_record : record.fqdn]
+  validation_record_fqdns = [
+  for record in aws_route53_record.route53_record : record.fqdn
+  ]
 }
 
 
@@ -460,4 +660,19 @@ resource "aws_route53_health_check" "accj_website_check" {
 ###########################################################################
 resource "aws_sqs_queue" "new_subscription_queue" {
   name = "new_subscription_queue"
+}
+
+###########################################################################
+# SES
+###########################################################################
+data "local_file" "verification_email_template_html" {
+  filename = "${path.module}/resources/VerificationEmailTemplate.html"
+}
+
+resource "aws_ses_template" "verification_email_template" {
+  #TODO - move html into a data file
+  name    = "EmailVerificationTemplate"
+  subject = "Please confirm your subscription to ${var.RootDomainName}"
+  html    = data.local_file.verification_email_template_html.content
+  text    = "Hello,\r\nThank-you for subscribing for updates to ${var.RootDomainName}.\r\n.  To confirm your subscription please click {{verification_url}}"
 }

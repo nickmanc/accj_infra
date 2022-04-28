@@ -6,13 +6,11 @@ exports.handler = async(event) =>
     try
     {
         console.log(event);
-        console.log(event.body);
-        const obj = event.body;
         
         const DDB = new AWS.DynamoDB({apiVersion: '2012-08-10'});
-        
-        const EMAIL = obj.email;
-        const EMAIL_UUID = obj.id;
+    
+        const EMAIL = event.queryStringParameters.email;
+        const EMAIL_UUID = event.queryStringParameters.id;
         
         const params = {
             TableName: "${tableName}",
@@ -53,17 +51,19 @@ exports.handler = async(event) =>
                 throw err;
             }
         }
+        console.log("about to return")
         return {
-            'statusCode': 200,
-            'body': JSON.stringify({
-                message: returnMessage
-            }),
-            'headers': JSON.stringify({
-                        'Content-Type': 'application/json',
-                        'Access-Control-Allow-Origin': '*'
-                    }
-            )
-        };
+            "isBase64Encoded": false,
+            "statusCode": '200',
+            "headers": {
+                'Access-Control-Allow-Origin': '*',
+                'Content-Type': 'text/html'
+            },
+            "body": "<html lang=\"en\"><head><style>.messageText {color: black; font-weight: 800; letter-spacing: 0.075em; text-transform: uppercase; font-size: 32px; font-family: \"Raleway\", \"Helvetica\", sans-serif; text-align: center;}</style></head>" +
+                    "<div class=\"messageText\"><h1>Sorry to see you go :-(</h1><p>" + EMAIL
+                    + "</p><p>I've removed you from the mailing list</p><br/>Best Wishes<p>Jack</p>"
+                    + "<img src='https://www.acatcalledjack.co.uk/images/sad_jack.jpg'\"></img></div></body></html>"}
+        
     } catch(err)
     {
         console.log("Error: " + err.message);
