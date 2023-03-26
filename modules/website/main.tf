@@ -114,9 +114,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "SiteLoggingBucketLifecycleConf
     expiration {
       days = 28
     }
-    filter {
-      prefix = "${var.bucketName}.log"
-    }
     status = "Enabled"
   }
 }
